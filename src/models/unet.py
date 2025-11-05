@@ -88,7 +88,7 @@ class EmotionConditionedUNet(nn.Module):
             latents,
             timesteps,
             encoder_hidden_states=emotion_embeddings,
-            return_dict=return_dict
+            return_dict=True
         )
         
         if return_dict:
