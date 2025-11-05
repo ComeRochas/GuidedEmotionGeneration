@@ -1,0 +1,24 @@
+# Inference/Sampling Configuration
+
+# Model paths
+model:
+  checkpoint_path: "./checkpoints/checkpoint_epoch_100.pt"
+  vae_model_id: "runwayml/stable-diffusion-v1-5"
+
+# Sampling settings
+sampling:
+  num_inference_steps: 50
+  guidance_scale: 1.0
+  batch_size: 4
+  image_size: 256
+  
+  # Emotion settings
+  emotion_idx: 1  # 0=neutral, 1=happiness, 2=sadness, etc.
+  
+  # For emotion transfer
+  noise_strength: 0.5  # 0.0 to 1.0
+
+# Output settings
+output:
+  save_dir: "./outputs"
+  num_samples: 8
