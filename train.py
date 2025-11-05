@@ -71,10 +71,11 @@ def setup_models(config, device):
 
 def setup_optimizer(unet, emotion_encoder, config):
     """Setup optimizer and learning rate scheduler."""
-    # Only train UNet and emotion encoder projection layers
+    # Train UNet and emotion encoder (projection, classifier, and embeddings)
     trainable_params = list(unet.parameters()) + \
                       list(emotion_encoder.embedding_proj.parameters()) + \
-                      list(emotion_encoder.classifier.parameters())
+                      list(emotion_encoder.classifier.parameters()) + \
+                      list(emotion_encoder.emotion_embeddings.parameters())
     
     optimizer = AdamW(
         trainable_params,

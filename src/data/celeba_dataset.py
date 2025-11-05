@@ -120,8 +120,9 @@ class CelebAHQDataset(Dataset):
                 emotion_label = 0
             
             return image, emotion_label
-        
-        return image,
+        else:
+            # Return default emotion label (neutral) even when not loading labels
+            return image, 0
     
     def get_sample_images(self, num_samples: int = 4):
         """

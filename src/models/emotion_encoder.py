@@ -38,11 +38,16 @@ class EmotionEncoder(nn.Module):
             nn.Linear(embedding_dim, num_emotions)
         )
         
-        # Embedding projection layer for conditioning
+        # Embedding projection layer for conditioning (used during training)
         self.embedding_proj = nn.Sequential(
             nn.Linear(in_features, embedding_dim),
             nn.LayerNorm(embedding_dim)
         )
+        
+        # Learned emotion embeddings for class-conditional generation (used during inference)
+        # These are trained via a contrastive loss or classification objective
+        self.emotion_embeddings = nn.Embedding(num_emotions, embedding_dim)
+        nn.init.normal_(self.emotion_embeddings.weight, std=0.02)
         
         # Optionally freeze backbone
         if freeze_backbone:
@@ -84,16 +89,39 @@ class EmotionEncoder(nn.Module):
         logits = self.classifier(features)
         return logits
     
+    def compute_embedding_alignment_loss(self, images, emotion_labels):
+        """
+        Compute loss to align learned emotion embeddings with image-derived embeddings.
+        This helps ensure the learned embeddings are meaningful.
+        
+        Args:
+            images: Input images [B, 3, H, W]
+            emotion_labels: Ground truth emotion labels [B]
+            
+        Returns:
+            loss: Alignment loss (MSE between learned and image-derived embeddings)
+        """
+        # Get embeddings from images
+        image_embeddings = self.forward(images)
+        
+        # Get learned embeddings for the labels
+        learned_embeddings = self.emotion_embeddings(emotion_labels)
+        
+        # Compute MSE loss
+        loss = torch.nn.functional.mse_loss(image_embeddings, learned_embeddings)
+        
+        return loss
+    
     def get_emotion_embedding(self, emotion_idx):
         """
-        Get embedding for a specific emotion class.
+        Get learned embedding for a specific emotion class.
         Useful for unconditional generation with specific emotions.
         
         Args:
             emotion_idx: Emotion class index [B] or scalar
             
         Returns:
-            embeddings: One-hot encoded and projected embeddings
+            embeddings: Learned emotion embeddings [B, embedding_dim]
         """
         if isinstance(emotion_idx, int):
             emotion_idx = torch.tensor([emotion_idx])
@@ -101,14 +129,10 @@ class EmotionEncoder(nn.Module):
         device = next(self.parameters()).device
         emotion_idx = emotion_idx.to(device)
         
-        # Create one-hot encoding
-        one_hot = torch.zeros(len(emotion_idx), self.num_emotions, device=device)
-        one_hot.scatter_(1, emotion_idx.unsqueeze(1), 1.0)
+        # Get learned embeddings
+        embeddings = self.emotion_embeddings(emotion_idx)
         
-        # Project through a simple linear layer for conditioning
-        # Note: This is a simplified version; in practice, you might want
-        # to use learned embeddings or pass through the network
-        return torch.randn(len(emotion_idx), self.embedding_dim, device=device)
+        return embeddings
     
     @staticmethod
     def get_emotion_names():

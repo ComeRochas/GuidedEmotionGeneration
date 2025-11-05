@@ -21,7 +21,9 @@ class DDPMTrainer:
         emotion_encoder,
         num_train_timesteps=1000,
         beta_schedule="linear",
-        prediction_type="epsilon"
+        prediction_type="epsilon",
+        use_embedding_alignment=False,
+        alignment_weight=0.1
     ):
         """
         Args:
@@ -31,10 +33,14 @@ class DDPMTrainer:
             num_train_timesteps: Number of diffusion timesteps
             beta_schedule: Noise schedule type
             prediction_type: What the model predicts ("epsilon" or "sample")
+            use_embedding_alignment: Whether to use embedding alignment loss
+            alignment_weight: Weight for alignment loss
         """
         self.unet = unet
         self.vae = vae
         self.emotion_encoder = emotion_encoder
+        self.use_embedding_alignment = use_embedding_alignment
+        self.alignment_weight = alignment_weight
         
         # Initialize DDPM noise scheduler
         self.noise_scheduler = DDPMScheduler(
@@ -45,27 +51,27 @@ class DDPMTrainer:
         
         self.num_train_timesteps = num_train_timesteps
     
-    def compute_loss(self, images, device):
+    def compute_loss(self, images, device, emotion_labels=None):
         """
         Compute DDPM loss for a batch of images.
         
         Args:
             images: Batch of images [B, 3, H, W]
             device: Device to run on
+            emotion_labels: Optional emotion labels [B] for alignment loss
             
         Returns:
-            loss: DDPM loss
+            loss: Total loss (DDPM + optional alignment loss)
         """
         images = images.to(device)
         batch_size = images.shape[0]
         
-        # Encode images to latents
+        # Encode images to latents (VAE is frozen)
         with torch.no_grad():
             latents = self.vae.encode(images)
         
-        # Extract emotion embeddings
-        with torch.no_grad():
-            emotion_embeddings = self.emotion_encoder(images)
+        # Extract emotion embeddings (allow gradients for training)
+        emotion_embeddings = self.emotion_encoder(images)
         
         # Sample noise
         noise = torch.randn_like(latents)
@@ -85,8 +91,17 @@ class DDPMTrainer:
         # Predict noise with UNet
         noise_pred = self.unet(noisy_latents, timesteps, emotion_embeddings)
         
-        # Compute loss (MSE between predicted and actual noise)
-        loss = nn.functional.mse_loss(noise_pred, noise, reduction="mean")
+        # Compute DDPM loss (MSE between predicted and actual noise)
+        ddpm_loss = nn.functional.mse_loss(noise_pred, noise, reduction="mean")
+        
+        loss = ddpm_loss
+        
+        # Add optional embedding alignment loss
+        if self.use_embedding_alignment and emotion_labels is not None:
+            alignment_loss = self.emotion_encoder.compute_embedding_alignment_loss(
+                images, emotion_labels
+            )
+            loss = loss + self.alignment_weight * alignment_loss
         
         return loss
     
@@ -104,23 +119,25 @@ class DDPMTrainer:
             loss: Training loss value
         """
         # Handle different batch formats (with or without labels)
-        if isinstance(batch, (tuple, list)):
+        if isinstance(batch, (tuple, list)) and len(batch) >= 2:
             images = batch[0]
+            emotion_labels = batch[1] if len(batch) > 1 else None
         else:
             images = batch
+            emotion_labels = None
         
         optimizer.zero_grad()
         
         # Mixed precision training
         if scaler is not None:
             with torch.cuda.amp.autocast():
-                loss = self.compute_loss(images, device)
+                loss = self.compute_loss(images, device, emotion_labels)
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
         else:
-            loss = self.compute_loss(images, device)
+            loss = self.compute_loss(images, device, emotion_labels)
             loss.backward()
             optimizer.step()
         
