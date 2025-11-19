@@ -70,9 +70,6 @@ class DDPMTrainer:
         with torch.no_grad():
             latents = self.vae.encode(images)
         
-        # Extract emotion embeddings (allow gradients for training)
-        emotion_embeddings = self.emotion_encoder(images)
-        
         # Sample noise
         noise = torch.randn_like(latents)
         
@@ -88,8 +85,8 @@ class DDPMTrainer:
         # Add noise to latents according to noise scheduler
         noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps)
         
-        # Predict noise with UNet
-        noise_pred = self.unet(noisy_latents, timesteps, emotion_embeddings)
+        # Predict noise with UNet (unconditional)
+        noise_pred = self.unet(noisy_latents, timesteps)
         
         # Compute DDPM loss (MSE between predicted and actual noise)
         ddpm_loss = nn.functional.mse_loss(noise_pred, noise, reduction="mean")
@@ -130,7 +127,7 @@ class DDPMTrainer:
         
         # Mixed precision training
         if scaler is not None:
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast(device.type):
                 loss = self.compute_loss(images, device, emotion_labels)
             
             scaler.scale(loss).backward()

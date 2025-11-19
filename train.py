@@ -54,7 +54,6 @@ def setup_models(config, device):
     unet = EmotionConditionedUNet(
         in_channels=config['model']['unet']['in_channels'],
         out_channels=config['model']['unet']['out_channels'],
-        cross_attention_dim=config['model']['unet']['cross_attention_dim'],
         use_pretrained=config['model']['unet']['use_pretrained'],
         pretrained_model_id=config['model']['unet'].get('pretrained_model_id')
     ).to(device)
@@ -71,11 +70,8 @@ def setup_models(config, device):
 
 def setup_optimizer(unet, emotion_encoder, config):
     """Setup optimizer and learning rate scheduler."""
-    # Train UNet and emotion encoder (projection, classifier, and embeddings)
-    trainable_params = list(unet.parameters()) + \
-                      list(emotion_encoder.embedding_proj.parameters()) + \
-                      list(emotion_encoder.classifier.parameters()) + \
-                      list(emotion_encoder.emotion_embeddings.parameters())
+    # Train only UNet
+    trainable_params = list(unet.parameters())
     
     optimizer = AdamW(
         trainable_params,
@@ -136,7 +132,7 @@ def train(config_path):
     # Setup mixed precision training
     scaler = None
     if config['training'].get('mixed_precision', False) and device.type == 'cuda':
-        scaler = torch.cuda.amp.GradScaler()
+        scaler = torch.amp.GradScaler('cuda')
         print("Using mixed precision training")
     
     # Training loop

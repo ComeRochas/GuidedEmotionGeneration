@@ -47,74 +47,41 @@ class DDPMSampler:
     def sample(
         self,
         batch_size: int,
-        emotion_idx: Optional[int] = None,
-        reference_image: Optional[torch.Tensor] = None,
         latent_size: tuple = (32, 32),
         device: str = "cuda",
-        guidance_scale: float = 1.0
+        initial_latents: Optional[torch.Tensor] = None
     ):
         """
-        Generate images with emotion guidance.
+        Generate images.
         
         Args:
             batch_size: Number of images to generate
-            emotion_idx: Target emotion class index (0-7)
-            reference_image: Optional reference image for emotion extraction
             latent_size: Size of latent space (H//8, W//8)
             device: Device to run on
-            guidance_scale: Guidance scale for conditioning
+            initial_latents: Optional initial latents to start denoising from [B, 4, H, W]
             
         Returns:
             images: Generated images [B, 3, H, W]
         """
         self.unet.eval()
         
-        # Get emotion embeddings
-        if reference_image is not None:
-            # Extract emotion from reference image
-            reference_image = reference_image.to(device)
-            emotion_embeddings = self.emotion_encoder(reference_image)
-            # Repeat for batch if needed
-            if emotion_embeddings.shape[0] == 1 and batch_size > 1:
-                emotion_embeddings = emotion_embeddings.repeat(batch_size, 1)
-        elif emotion_idx is not None:
-            # Use specific emotion class
-            emotion_embeddings = self.emotion_encoder.get_emotion_embedding(
-                torch.tensor([emotion_idx] * batch_size)
-            )
+        if initial_latents is not None:
+            latents = initial_latents.to(device)
         else:
-            # Random emotion
-            emotion_embeddings = torch.randn(
-                batch_size, 
-                self.emotion_encoder.embedding_dim,
+            # Initialize random latents
+            latents = torch.randn(
+                batch_size,
+                4,  # Number of latent channels (SD VAE default)
+                latent_size[0],
+                latent_size[1],
                 device=device
             )
-        
-        # Initialize random latents
-        latents = torch.randn(
-            batch_size,
-            4,  # Number of latent channels (SD VAE default)
-            latent_size[0],
-            latent_size[1],
-            device=device
-        )
         
         # Denoising loop
         for t in tqdm(self.scheduler.timesteps, desc="Sampling"):
             # Predict noise
             timestep = t.unsqueeze(0).repeat(batch_size).to(device)
-            noise_pred = self.unet(latents, timestep, emotion_embeddings)
-            
-            # Apply guidance (classifier-free guidance style)
-            if guidance_scale != 1.0:
-                # Predict unconditional noise
-                uncond_embeddings = torch.zeros_like(emotion_embeddings)
-                noise_pred_uncond = self.unet(latents, timestep, uncond_embeddings)
-                
-                # Apply guidance
-                noise_pred = noise_pred_uncond + guidance_scale * (
-                    noise_pred - noise_pred_uncond
-                )
+            noise_pred = self.unet(latents, timestep)
             
             # Denoise step
             latents = self.scheduler.step(noise_pred, t, latents).prev_sample
@@ -123,6 +90,7 @@ class DDPMSampler:
         images = self.vae.decode(latents)
         
         return images
+
     
     @torch.no_grad()
     def emotion_transfer(

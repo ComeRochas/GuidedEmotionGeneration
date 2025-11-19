@@ -47,7 +47,7 @@ training:
 
 # Data settings
 data:
-  data_root: "./data/celeba_hq"
+  data_root: "./src/data/celeba/celeba_hq_256"
   image_size: 256
   return_emotion_labels: false
 
